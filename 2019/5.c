@@ -50,7 +50,7 @@ int math_op(int *mem, int opcode, int *pc)
 int io_op(int *mem, int opcode, int *pc, int *std_input, int *std_output)
 {
     int param = get_param(mem, opcode, pc, 1);
-    int dst = pc[3];
+    int dst = pc[1];
     opcode %= 100;
 
     if(opcode == 3)
