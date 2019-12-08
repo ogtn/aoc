@@ -4,7 +4,7 @@
 #include <math.h>
 
 static const int MAX_MEMORY = 4096;
-static const int IO_SIZE = 256;
+static const int IO_SIZE = 16;
 static const int NB_PHASES = 5;
 
 #define CRASH(msg) do { quit(msg, __LINE__); } while(0);
@@ -16,177 +16,178 @@ typedef struct io
 	int last;
 } io;
 
+typedef struct context
+{
+	int *mem;
+	int *pc;
+	io *std_input;
+	io *std_output;
+} context;
+
 void quit(const char* msg, int line)
 {
-    printf("Crash @ line %d: %s\n", line, msg);
+	printf("Crash @ line %d: %s\n", line, msg);
 
-    exit(EXIT_FAILURE);
+	exit(EXIT_FAILURE);
 }
 
-int get_param(int *mem, int opcode, int *pc, int position)
+int get_param(int *mem, int *pc, int position)
 {
-    int digit_pos = pow(10, position + 1);
-    int mode = (opcode / digit_pos) % 10;
-    int value;
+	int digit_pos = pow(10, position + 1);
+	int mode = (*pc / digit_pos) % 10;
+	int value;
 
-    if(mode == 0)
-        value = mem[pc[position]];
-    else if(mode == 1)
-        value = pc[position];
-    else
-        CRASH("invalid mode");
+	if(mode == 0)
+		value = mem[pc[position]];
+	else if(mode == 1)
+		value = pc[position];
+	else
+		CRASH("invalid mode");
 
-    return value;
+	return value;
 }
 
-int math_op(int *mem, int opcode, int *pc)
+void math_op(context *ctx, int opcode)
 {
-    int param1 = get_param(mem, opcode, pc, 1);
-    int param2 = get_param(mem, opcode, pc, 2);
-    int dst = pc[3];
-    opcode %= 100;
+	int param1 = get_param(ctx->mem, ctx->pc, 1);
+	int param2 = get_param(ctx->mem, ctx->pc, 2);
+	int dst = ctx->pc[3];
 
-    if(opcode == 1)
-        mem[dst] = param1 + param2;
-    else if(opcode == 2)
-        mem[dst] = param1 * param2;
-    else
-        CRASH("invalid math_op");
+	if(opcode == 1)
+		ctx->mem[dst] = param1 + param2;
+	else if(opcode == 2)
+		ctx->mem[dst] = param1 * param2;
+	else
+		CRASH("invalid math_op");
 
-    return 4;
+	ctx->pc += 4;
 }
 
-int io_op(int *mem, int opcode, int *pc, io *std_input, io *std_output)
+int io_op(context *ctx, int opcode)
 {
-    int param = get_param(mem, opcode, pc, 1);
-    int dst = pc[1];
-    opcode %= 100;
+	int param = get_param(ctx->mem, ctx->pc, 1);
+	int dst = ctx->pc[1];
 
-    if(opcode == 3)
-    {
-    	if(std_input->pos > std_input->last)
-    		CRASH("nothing to read"); // need to pause here
+	if(opcode == 3)
+	{
+		if(ctx->std_input->pos > ctx->std_input->last)
+			return 1;
 
-        mem[dst] = std_input->buff[std_input->pos++];
-    }
-    else if(opcode == 4)
-    {
-    	std_output->last++;
-        std_output->buff[std_output->last] = param;
-    }
+		ctx->mem[dst] = ctx->std_input->buff[ctx->std_input->pos++];
 
-    if(std_input->pos >= IO_SIZE)
-    	CRASH("exceeded std_input size");
+		if(ctx->std_input->pos >= IO_SIZE)
+			CRASH("exceeded std_input size");
+	}
+	else if(opcode == 4)
+	{
+		if(ctx->std_output->last >= IO_SIZE - 1)
+			CRASH("exceeded std_output size");
 
-    if(std_output->last >= IO_SIZE)
-    	CRASH("exceeded std_output size");
+		ctx->std_output->last++;
+		ctx->std_output->buff[ctx->std_output->last] = param;
+	}
 
-    return 2;
+	ctx->pc += 2;
+
+	return 0;
 }
 
-int *jmp_op(int *mem, int opcode, int *pc)
+void jmp_op(context *ctx, int opcode)
 {
-    int param1 = get_param(mem, opcode, pc, 1);
-    int param2 = get_param(mem, opcode, pc, 2);
-    int dst = pc[3];
+	int param1 = get_param(ctx->mem, ctx->pc, 1);
+	int param2 = get_param(ctx->mem, ctx->pc, 2);
+	int dst = ctx->pc[3];
 
-    int *next_pc;
-    opcode %= 100;
-
-    if(opcode == 5)
-        next_pc = param1 ? &mem[param2] : pc + 3;
-    else if(opcode == 6)
-        next_pc = !param1 ? &mem[param2] : pc + 3;
-    else if(opcode == 7)
-    {
-        mem[dst] = param1 < param2; 
-        next_pc = pc + 4;
-    }
-    else if(opcode == 8)
-    {
-        mem[dst] = param1 == param2;
-        next_pc = pc + 4;
-    }
-
-    return next_pc;
+	if(opcode == 5)
+		ctx->pc = param1 ? &ctx->mem[param2] : ctx->pc + 3;
+	else if(opcode == 6)
+		ctx->pc = !param1 ? &ctx->mem[param2] : ctx->pc + 3;
+	else if(opcode == 7)
+	{
+		ctx->mem[dst] = param1 < param2; 
+		ctx->pc += 4;
+	}
+	else if(opcode == 8)
+	{
+		ctx->mem[dst] = param1 == param2;
+		ctx->pc += 4;
+	}
 }
 
-void run(const int *memory, io *std_input, io *std_output)
+int run(context *ctx)
 {
-    int mem[MAX_MEMORY];
-    int *pc = mem;
-    int stop = 0;
+	int halt = 0;
+	int io_blocked = 0;
 
-    memcpy(mem, memory, sizeof(int) * MAX_MEMORY);
+	while(!halt && !io_blocked)
+	{
+		int opcode = *(ctx->pc) % 100;
 
-    while(!stop)
-    {
-        int opcode = *pc;
+		switch(opcode)
+		{
+			case 1:
+			case 2:
+				math_op(ctx, opcode);
+				break;
 
-        switch(opcode % 100)
-        {
-            case 1:
-            case 2:
-                pc += math_op(mem, opcode, pc);
-                break;
+			case 3:
+			case 4:
+				io_blocked = io_op(ctx, opcode);
+				break;
 
-            case 3: 
-            case 4:
-                pc += io_op(mem, opcode, pc, std_input, std_output);
-                break;
+			case 5:
+			case 6:
+			case 7:
+			case 8:
+				jmp_op(ctx, opcode);
+				break;
 
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-                pc = jmp_op(mem, opcode, pc);
-                break;
+			case 99:
+				ctx->pc++;
+				halt = 1;
+				break;
 
-            case 99:
-                pc++;
-                stop = 1;
-                break;
+			default:
+				CRASH("unknow opcode");
+		}
+	}
 
-            default:
-                CRASH("unknow opcode");
-        }
-    }
+	return io_blocked;
 }
 
 int run_amplification(const int *mem, int *phases, int use_feedbackloop)
 {
-    io std_input, std_output;
+	io io_buffers[5];
+	context contexts[5];
 
-	std_input.buff[1] = 0;
-	std_input.last = 1;
-	std_output.pos = 0;
-	std_output.last = -1;
-    std_input.pos = 0;
+	for(int i = 0; i < 5; i++)
+	{
+		io_buffers[i].buff[0] = phases[i];
+		io_buffers[i].last = 0;
+		io_buffers[i].pos = 0;
 
-    for(int i = 0; i < 5; i++)
-    {
-    	std_input.buff[0] = phases[i];
-    	run(mem, &std_input, &std_output);
-    	
-    	printf("amp %d wrote %d values and read %d\n", i, std_output.last + 1, std_input.pos);
-
-    	for(int j = 0; j <= std_output.last; j++)
-    		printf("[%d] %d\n", j, std_output.buff[j]);
-
-    	std_output.pos = 0;
-    	std_output.last = -1;
-    	std_input.pos = 0;
-    	std_input.last = 1;
-    	std_input.buff[1] = std_output.buff[0];
-
-
-    	if(use_feedbackloop && i == 4)
-    	{
-    		//i = -1;
-    	}
+		contexts[i].mem = malloc(sizeof(int) * MAX_MEMORY);
+		memcpy(contexts[i].mem, mem, sizeof(int) * MAX_MEMORY);
+		contexts[i].pc = contexts[i].mem;
+		contexts[i].std_input = &io_buffers[i % 5];
+		contexts[i].std_output = &io_buffers[(i + 1) % 5];
 	}
 
-    return std_output.buff[0];
+	io_buffers[0].buff[1] = 0;
+	io_buffers[0].last = 1;
+
+	for(int i = 0; i < 5; i++)
+	{
+		int io_blocked = run(&contexts[i]);
+
+		if(use_feedbackloop && i == 4 && io_blocked)
+			i = -1;
+	}
+
+	for(int i = 0; i < 5; i++)
+		free(contexts[i].mem);
+
+	return io_buffers[0].buff[io_buffers[0].last];
 }
 
 int permut_phases(const int *mem, int *phases, int use_feedbackloop, int depth)
@@ -209,23 +210,15 @@ int permut_phases(const int *mem, int *phases, int use_feedbackloop, int depth)
 	}
 
 	if(depth == 0)
-	{
 		res = run_amplification(mem, phases, use_feedbackloop);
-
-		for(int i = 0; i < 5; i++)
-			printf("%d", phases[i]);
-
-		printf(" -> %d\n", res);
-		//exit(EXIT_SUCCESS);
-	}
 
 	return res;
 }
 
 void read_code(int *mem)
 {
-    int *pc = mem;
-    char buff[8];
+	int *pc = mem;
+	char buff[8];
 
 	do
 	{
@@ -236,14 +229,13 @@ void read_code(int *mem)
 
 int main(void)
 {
-    static int memory[MAX_MEMORY];
+	static int memory[MAX_MEMORY];
 	int normal_phases[] = { 0, 1, 2, 3, 4 };
-	//int feedback_phases[] = { 5, 6, 7, 8, 9 };
-	int feedback_phases[] = { 9,8,7,6,5 };
+	int feedback_phases[] = { 5, 6, 7, 8, 9 };
 
 	read_code(memory);
 	printf("Part 1: %d\n", permut_phases(memory, normal_phases, 0, 5));
-	//printf("Part 2: %d\n", permut_phases(memory, feedback_phases, 1, 5));
+	printf("Part 2: %d\n", permut_phases(memory, feedback_phases, 1, 5));
 
-    return EXIT_SUCCESS;
+	return EXIT_SUCCESS;
 }
