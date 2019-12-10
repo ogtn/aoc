@@ -61,7 +61,7 @@ int get_addr(context *ctx, int position)
 	else if(mode == 2)
 		addr = ctx->pc[position] + ctx->base;
 	else
-		CRASH("invalid mode");
+		CRASH("invalid address mode");
 
 	if(addr >= MAX_MEMORY)
 		CRASH("memory overflow");
