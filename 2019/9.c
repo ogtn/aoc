@@ -197,7 +197,7 @@ int run(context *ctx)
 	return io_blocked;
 }
 
-long run_part1(const long *mem, long input)
+long run_day_9(const long *mem, long input)
 {
 	io io_buffers[2];
 	context ctx;
@@ -240,8 +240,8 @@ int main(void)
 	static long memory[MAX_MEMORY];
 
 	read_code(memory);
-	printf("Part 1: %ld\n", run_part1(memory, 1));
-	printf("Part 2: %ld\n", run_part1(memory, 2));
+	printf("Part 1: %ld\n", run_day_9(memory, 1));
+	printf("Part 2: %ld\n", run_day_9(memory, 2));
 
 	return EXIT_SUCCESS;
 }
