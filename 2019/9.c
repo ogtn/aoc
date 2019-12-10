@@ -5,7 +5,6 @@
 
 static const int MAX_MEMORY = 1 << 16;
 static const int IO_SIZE = 16;
-static const int NB_PHASES = 5;
 
 #define CRASH(msg) do { quit(msg, __LINE__); } while(0);
 
@@ -20,6 +19,7 @@ typedef struct context
 {
 	long *mem;
 	long *pc;
+	long inst_cpt;
 	int base;
 	io *std_input;
 	io *std_output;
@@ -91,13 +91,13 @@ void math_op(context *ctx, int opcode)
 int io_op(context *ctx, int opcode)
 {
 	long param = get_param(ctx, 1);
-	int addr = get_addr(ctx, 3);
 
 	if(opcode == 3)
 	{
 		if(ctx->std_input->pos > ctx->std_input->last)
 			return 1;
 
+		int addr = get_addr(ctx, 3);
 		ctx->mem[addr] = ctx->std_input->buff[ctx->std_input->pos++];
 
 		if(ctx->std_input->pos >= IO_SIZE)
@@ -156,6 +156,9 @@ int run(context *ctx)
 	{
 		int opcode = *(ctx->pc) % 100;
 
+		//printf("mem[%d] = [%ld, %ld, %ld, %ld]\n", (int)(ctx->pc - ctx->mem),
+		//	ctx->pc[0], ctx->pc[1], ctx->pc[2], ctx->pc[3]);
+
 		switch(opcode)
 		{
 			case 1:
@@ -187,6 +190,8 @@ int run(context *ctx)
 			default:
 				CRASH("unknow opcode");
 		}
+
+		ctx->inst_cpt++;
 	}
 
 	return io_blocked;
@@ -201,6 +206,7 @@ long run_part1(const long *mem, long input)
 	memcpy(ctx.mem, mem, sizeof *mem * MAX_MEMORY);
 	ctx.pc = ctx.mem;
 	ctx.base = 0;
+	ctx.inst_cpt = 0;
 	ctx.std_input = &io_buffers[0];
 	ctx.std_input->buff[0] = input;
 	ctx.std_input->last = 0;
@@ -211,6 +217,8 @@ long run_part1(const long *mem, long input)
 
 	run(&ctx);
 	free(ctx.mem);
+
+	printf("Instructions executed: %ld\n", ctx.inst_cpt);
 
 	return ctx.std_output->buff[ctx.std_output->last];
 }
