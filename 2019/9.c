@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-static const int MAX_MEMORY = 4096;
+static const int MAX_MEMORY = 1 << 16;
 static const int IO_SIZE = 16;
 static const int NB_PHASES = 5;
 
@@ -11,15 +11,16 @@ static const int NB_PHASES = 5;
 
 typedef struct io
 {
-	int buff[IO_SIZE];
+	long buff[IO_SIZE];
 	int pos;
 	int last;
 } io;
 
 typedef struct context
 {
-	int *mem;
-	int *pc;
+	long *mem;
+	long *pc;
+	int base;
 	io *std_input;
 	io *std_output;
 } context;
@@ -31,32 +32,56 @@ void quit(const char* msg, int line)
 	exit(EXIT_FAILURE);
 }
 
-int get_param(int *mem, int *pc, int position)
+long get_param(context *ctx, int position)
 {
 	int digit_pos = pow(10, position + 1);
-	int mode = (*pc / digit_pos) % 10;
-	int value;
+	int mode = (*(ctx->pc) / digit_pos) % 10;
+	long value;
 
 	if(mode == 0)
-		value = mem[pc[position]];
+		value = ctx->mem[ctx->pc[position]];
 	else if(mode == 1)
-		value = pc[position];
+		value = ctx->pc[position];
+	else if(mode == 2)
+		value = ctx->mem[ctx->pc[position] + ctx->base];
 	else
 		CRASH("invalid mode");
 
 	return value;
 }
 
+int get_addr(context *ctx, int position)
+{
+	int digit_pos = pow(10, position + 1);
+	int mode = (*(ctx->pc) / digit_pos) % 10;
+	int addr;
+
+	if(mode == 0)
+		addr = ctx->pc[position];
+	else if(mode == 2)
+		addr = ctx->pc[position] + ctx->base;
+	else
+		CRASH("invalid mode");
+
+	if(addr >= MAX_MEMORY)
+		CRASH("memory overflow");
+
+	if(addr < 0)
+		CRASH("memory underflow");
+
+	return addr;
+}
+
 void math_op(context *ctx, int opcode)
 {
-	int param1 = get_param(ctx->mem, ctx->pc, 1);
-	int param2 = get_param(ctx->mem, ctx->pc, 2);
-	int dst = ctx->pc[3];
+	long param1 = get_param(ctx, 1);
+	long param2 = get_param(ctx, 2);
+	int addr = get_addr(ctx, 3);
 
 	if(opcode == 1)
-		ctx->mem[dst] = param1 + param2;
+		ctx->mem[addr] = param1 + param2;
 	else if(opcode == 2)
-		ctx->mem[dst] = param1 * param2;
+		ctx->mem[addr] = param1 * param2;
 	else
 		CRASH("invalid math_op");
 
@@ -65,15 +90,15 @@ void math_op(context *ctx, int opcode)
 
 int io_op(context *ctx, int opcode)
 {
-	int param = get_param(ctx->mem, ctx->pc, 1);
-	int dst = ctx->pc[1];
+	long param = get_param(ctx, 1);
+	int addr = get_addr(ctx, 3);
 
 	if(opcode == 3)
 	{
 		if(ctx->std_input->pos > ctx->std_input->last)
 			return 1;
 
-		ctx->mem[dst] = ctx->std_input->buff[ctx->std_input->pos++];
+		ctx->mem[addr] = ctx->std_input->buff[ctx->std_input->pos++];
 
 		if(ctx->std_input->pos >= IO_SIZE)
 			CRASH("exceeded std_input size");
@@ -94,9 +119,9 @@ int io_op(context *ctx, int opcode)
 
 void jmp_op(context *ctx, int opcode)
 {
-	int param1 = get_param(ctx->mem, ctx->pc, 1);
-	int param2 = get_param(ctx->mem, ctx->pc, 2);
-	int dst = ctx->pc[3];
+	long param1 = get_param(ctx, 1);
+	long param2 = get_param(ctx, 2);
+	int addr = get_addr(ctx, 3);
 
 	if(opcode == 5)
 		ctx->pc = param1 ? &ctx->mem[param2] : ctx->pc + 3;
@@ -104,14 +129,22 @@ void jmp_op(context *ctx, int opcode)
 		ctx->pc = !param1 ? &ctx->mem[param2] : ctx->pc + 3;
 	else if(opcode == 7)
 	{
-		ctx->mem[dst] = param1 < param2; 
+		ctx->mem[addr] = param1 < param2; 
 		ctx->pc += 4;
 	}
 	else if(opcode == 8)
 	{
-		ctx->mem[dst] = param1 == param2;
+		ctx->mem[addr] = param1 == param2;
 		ctx->pc += 4;
 	}
+}
+
+void set_base(context *ctx)
+{
+	long param = get_param(ctx, 1);
+
+	ctx->base += param;
+	ctx->pc += 2;
 }
 
 int run(context *ctx)
@@ -142,6 +175,10 @@ int run(context *ctx)
 				jmp_op(ctx, opcode);
 				break;
 
+			case 9:
+				set_base(ctx);
+				break;
+
 			case 99:
 				ctx->pc++;
 				halt = 1;
@@ -155,16 +192,18 @@ int run(context *ctx)
 	return io_blocked;
 }
 
-int run_part1(const int *mem)
+long run_part1(const long *mem, long input)
 {
 	io io_buffers[2];
 	context ctx;
 
-	ctx.mem = malloc(sizeof(int) * MAX_MEMORY);
-	memcpy(ctx.mem, mem, sizeof(int) * MAX_MEMORY);
+	ctx.mem = malloc(sizeof *mem * MAX_MEMORY);
+	memcpy(ctx.mem, mem, sizeof *mem * MAX_MEMORY);
 	ctx.pc = ctx.mem;
+	ctx.base = 0;
 	ctx.std_input = &io_buffers[0];
-	ctx.std_input->last = -1;
+	ctx.std_input->buff[0] = input;
+	ctx.std_input->last = 0;
 	ctx.std_input->pos = 0;
 	ctx.std_output = &io_buffers[1];
 	ctx.std_output->last = -1;
@@ -176,24 +215,25 @@ int run_part1(const int *mem)
 	return ctx.std_output->buff[ctx.std_output->last];
 }
 
-void read_code(int *mem)
+void read_code(long *mem)
 {
-	int *pc = mem;
-	char buff[8];
+	long *pc = mem;
+	char buff[32];
 
 	do
 	{
 		scanf("%[-0123456789]s", buff);
-		*pc++ = atoi(buff);
+		*pc++ = atol(buff);
 	} while(getchar() != EOF);
 }
 
 int main(void)
 {
-	static int memory[MAX_MEMORY];
+	static long memory[MAX_MEMORY];
 
 	read_code(memory);
-	printf("Part 1: %d\n", run_part1(memory));
+	printf("Part 1: %ld\n", run_part1(memory, 1));
+	printf("Part 2: %ld\n", run_part1(memory, 2));
 
 	return EXIT_SUCCESS;
 }
