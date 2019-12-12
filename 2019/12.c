@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct vec3
 {
@@ -57,12 +58,46 @@ void run_step(planet *planets)
 			}
 		}
 	}
+
+	for(int i = 0; i < NB_PLANETS; i++)
+	{
+		planets[i].pos.x += planets[i].vel.x;
+		planets[i].pos.y += planets[i].vel.y;
+		planets[i].pos.z += planets[i].vel.z;
+	}
 }
 
-int main(void)
+int get_energy(const planet *planets)
 {
-	static planet planets[NB_PLANETS];
+	int total_energy = 0;
 
+	for(int i = 0; i < NB_PLANETS; i++)
+	{
+		int energy = (abs(planets[i].pos.x) + abs(planets[i].pos.y) + abs(planets[i].pos.z)) *
+			(abs(planets[i].vel.x) + abs(planets[i].vel.y) + abs(planets[i].vel.z));
+
+		total_energy += energy;
+	}
+
+	return total_energy;
+}
+
+void print_planets(const planet *planets)
+{
+	puts("==============");
+
+	for(int i = 0; i < NB_PLANETS; i++)
+	{
+		printf("pos: %d %d %d - vel: %d %d %d\n", 
+			planets[i].pos.x ,planets[i].pos.y, planets[i].pos.z,
+			planets[i].vel.x ,planets[i].vel.y, planets[i].vel.z);
+	}
+
+	puts("==============");
+}
+
+void read_input(planet *planets)
+{
 	for(int i = 0; i < NB_PLANETS; i++)
 	{
 		char buff[8];
@@ -77,34 +112,41 @@ int main(void)
 		scanf("%[-0-9]s", buff);
 		planets[i].pos.z = atoi(buff);
 		getchar();getchar();getchar();
-
 	}
-	
+}
+
+int main(void)
+{
+	static planet planets[NB_PLANETS];
+	static planet planets_tmp[NB_PLANETS];
+
+	read_input(planets);
+	memcpy(planets_tmp, planets, sizeof planets);
+
 	for(int step = 0; step < 1000; step++)
+		run_step(planets_tmp);
+
+	printf("Part 1: total energy = %d\n", get_energy(planets_tmp));
+
+	memcpy(planets_tmp, planets, sizeof planets);
+
+	print_planets(planets_tmp);
+
+	for(long step = 0; step < 4686774924; step++)
 	{
-		run_step(planets);
-		
-		for(int i = 0; i < NB_PLANETS; i++)
+		run_step(planets_tmp);
+
+		/*
+		if(step % 10000000 == 0)
 		{
-			planets[i].pos.x += planets[i].vel.x;
-			planets[i].pos.y += planets[i].vel.y;
-			planets[i].pos.z += planets[i].vel.z;
+			printf("Step %ld:\n", step);
+			print_planets(planets_tmp);
 		}
+		*/
 	}
 
-	int total_energy = 0;
-
-	for(int i = 0; i < NB_PLANETS; i++)
-	{
-		int energy = (abs(planets[i].pos.x) + abs(planets[i].pos.y) + abs(planets[i].pos.z)) *
-			(abs(planets[i].vel.x) + abs(planets[i].vel.y) + abs(planets[i].vel.z));
-
-		total_energy += energy;
-
-		//printf("%d %d %d: E = %d\n", planets[i].pos.x ,planets[i].pos.y, planets[i].pos.z, energy);
-	}
-
-	printf("Part 1: total energy = %d\n", total_energy);
+	puts("end :");
+	print_planets(planets_tmp);
 
 	return EXIT_SUCCESS;
 }
